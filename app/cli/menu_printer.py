@@ -103,11 +103,17 @@ class MenuPrinter:
     def _main_menu(self, username: str) -> None:
         """Main menu loop with implemented menus."""
         while True:
-            self.print_menu(["Manage Users", "Manage Portfolios", "Marketplace", "Logout"], "Main Menu")
-            choice = self.prompt_choice(4, "Choose an option")
+            self.print_menu([
+                "Manage Users",
+                "Manage Portfolios",
+                "Marketplace",
+                "View Balance",
+                "Logout"
+            ], "Main Menu")
+            choice = self.prompt_choice(5, "Choose an option")
             if choice == 0:
                 continue
-            if choice == 4:
+            if choice == 5:
                 try:
                     if self.login_service:
                         self.login_service.logout()
@@ -124,6 +130,22 @@ class MenuPrinter:
                 self._manage_portfolios_menu(username)
             elif choice == 3:
                 self._marketplace_menu(username)
+            elif choice == 4:
+                self._view_balance(username)
+    def _view_balance(self, username: str) -> None:
+        """Display the user's available cash balance."""
+        try:
+            user = self.user_service.get_user(username)
+            if not user:
+                self.console.print(f"[red]User '{username}' not found.[/red]")
+                return
+            balance = getattr(user, "balance", None)
+            if balance is None:
+                self.console.print(f"[red]Balance not available for user '{username}'.[/red]")
+                return
+            self.console.print(f"[bold green]Available Balance: ${balance:.2f}[/bold green]")
+        except Exception as e:
+            self.console.print(f"[red]Error retrieving balance: {e}[/red]")
 
     def _manage_users_menu(self) -> None:
         """Manage Users submenu for admin."""
@@ -227,11 +249,17 @@ class MenuPrinter:
     def _manage_portfolios_menu(self, username: str) -> None:
         """Manage Portfolios submenu."""
         while True:
-            self.print_menu(["View Portfolios", "Create Portfolio", "Delete Portfolio", "Back to Main Menu"], "Manage Portfolios")
-            choice = self.prompt_choice(4, "Choose an option")
+            self.print_menu([
+                "View Portfolios",
+                "Create Portfolio",
+                "Delete Portfolio",
+                "Harvest Investment",
+                "Back to Main Menu"
+            ], "Manage Portfolios")
+            choice = self.prompt_choice(5, "Choose an option")
             if choice == 0:
                 continue
-            if choice == 4:
+            if choice == 5:
                 break  # back to main menu
             if choice == 1:
                 self._view_portfolios(username)
@@ -239,6 +267,36 @@ class MenuPrinter:
                 self._create_portfolio(username)
             elif choice == 3:
                 self._delete_portfolio(username)
+            elif choice == 4:
+                self._harvest_investment(username)
+    def _harvest_investment(self, username: str) -> None:
+        """Prompt for portfolio ID, ticker, quantity, and sale price, then harvest investment."""
+        try:
+            portfolio_id = get_int("Portfolio ID to harvest from", min_value=1)
+            if portfolio_id is None:
+                return
+            ticker = get_string("Ticker symbol to harvest")
+            if not ticker:
+                return
+            quantity = get_int("Quantity to harvest", min_value=1)
+            if quantity is None:
+                return
+            # Get current market price from security_service
+            security = self.security_service.get_security(ticker)
+            if not security:
+                self.console.print(f"[red]Security '{ticker}' not found.[/red]")
+                return
+            sale_price = security.price
+            proceeds = self.portfolio_service.harvest_investment(
+                username, portfolio_id, ticker, quantity, sale_price
+            )
+            self.console.print(f"[green]Harvested {quantity} shares of {ticker} from portfolio {portfolio_id} at market price ${sale_price:.2f}/share. Proceeds: ${proceeds:.2f}[/green]")
+        except ValidationError as ve:
+            self.console.print(f"[red]Harvest failed: {ve}[/red]")
+        except NotFoundError as ne:
+            self.console.print(f"[red]Harvest error: {ne}[/red]")
+        except Exception as e:
+            self.console.print(f"[red]Unexpected error during harvest: {e}[/red]")
 
     def _view_portfolios(self, username: str) -> None:
         """Display all portfolios of the user in a table."""
