@@ -5,6 +5,12 @@ from app.domain.user import User
 from app.service.exceptions import ValidationError, NotFoundError, AuthorizationError
 
 class UserService:
+    def get_user(self, username: str) -> User:
+        """Retrieve a user by username."""
+        user = get_user(username)
+        if not user:
+            raise NotFoundError(f"User '{username}' does not exist.")
+        return user
     def list_users(self) -> List[User]:
         return list_users()
 
