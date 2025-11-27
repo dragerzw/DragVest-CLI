@@ -88,7 +88,8 @@ class PortfolioService:
 
             # ensure using Decimal for monetary math
             pp = Decimal(str(purchase_price))
-            cost = security.price * Decimal(quantity)
+            sec_price = Decimal(str(security.price))
+            cost = sec_price * Decimal(quantity)
             # normalize user.balance to Decimal if it's a float stored in DB
             if not isinstance(user.balance, Decimal):
                 user.balance = Decimal(str(user.balance))

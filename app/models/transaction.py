@@ -22,7 +22,8 @@ class Transaction(Base):
     action: Mapped[str] = mapped_column(String(10), nullable=False)  # 'BUY' or 'SELL'
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    # Use timezone-aware UTC timestamps to satisfy SQLAlchemy deprecation guidance
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     user: Mapped["User"] = relationship("User")
     portfolio: Mapped["Portfolio"] = relationship("Portfolio")
