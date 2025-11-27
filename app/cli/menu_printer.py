@@ -1,5 +1,7 @@
 # app/cli/menu_printer.py
 from typing import Iterable, Optional, Any
+import difflib
+from decimal import Decimal
 from rich.console import Console
 from rich.table import Table
 
@@ -104,16 +106,17 @@ class MenuPrinter:
         """Main menu loop with implemented menus."""
         while True:
             self.print_menu([
-                "Manage Users",
-                "Manage Portfolios",
-                "Marketplace",
-                "View Balance",
-                "Logout"
+                    "Manage Users",
+                    "Manage Portfolios",
+                    "Marketplace",
+                    "View Transactions",
+                    "View Balance",
+                    "Logout"
             ], "Main Menu")
-            choice = self.prompt_choice(5, "Choose an option")
+            choice = self.prompt_choice(6, "Choose an option")
             if choice == 0:
                 continue
-            if choice == 5:
+            if choice == 6:
                 try:
                     if self.login_service:
                         self.login_service.logout()
@@ -131,6 +134,8 @@ class MenuPrinter:
             elif choice == 3:
                 self._marketplace_menu(username)
             elif choice == 4:
+                self._view_transactions_menu(username)
+            elif choice == 5:
                 self._view_balance(username)
     def _view_balance(self, username: str) -> None:
         """Display the user's available cash balance."""
@@ -178,11 +183,17 @@ class MenuPrinter:
             table.add_column("Username", style="cyan")
             table.add_column("Balance", style="green")
             for user in users:
+                bal = getattr(user, 'balance', None)
+                try:
+                    from decimal import Decimal
+                    bal_disp = Decimal(bal) if bal is not None else Decimal('0.00')
+                except Exception:
+                    bal_disp = bal
                 table.add_row(
                     str(getattr(user, "first_name", "")),
                     str(getattr(user, "last_name", "")),
                     str(getattr(user, "username", "")),
-                    f"${float(getattr(user, 'balance', 0.0)):.2f}",
+                    f"${bal_disp:.2f}",
                 )
             self.console.print(table)
         except Exception as e:
@@ -222,12 +233,22 @@ class MenuPrinter:
             username = get_string("Username of the user to delete")
             if username == "":
                 return
+            # Check that the user exists before asking for confirmation
+            try:
+                _ = self.user_service.get_user(username)
+            except NotFoundError:
+                self.console.print(f"[red]User {username} not found.[/red]")
+                return
+
             confirm = get_string(f"Confirm deletion of user '{username}'? (yes/no)")
             if confirm.strip().lower() == "yes":
-                success = self.user_service.delete_user(username)
-                if success:
+                try:
+                    self.user_service.delete_user(username)
                     self.console.print(f"[green]User {username} deleted successfully.[/green]")
-                else:
+                except ValidationError as ve:
+                    self.console.print(f"[red]{ve}[/red]")
+                except NotFoundError:
+                    # Ideally shouldn't happen because we checked, but handle defensively
                     self.console.print(f"[red]User {username} not found.[/red]")
         except Exception as e:
             self.console.print(f"[red]Error deleting user: {e}[/red]")
@@ -311,10 +332,19 @@ class MenuPrinter:
             table.add_column("Assets (Amount Invested)", style="green")
             for portfolio in portfolios:
                 # Calculate amount invested for each asset using Security price
-                assets = ", ".join([
-                    f"{inv.ticker} (${inv.quantity * self.security_service.get_security(inv.ticker).price:.2f}, {inv.quantity:.4f} shares)"
-                    for inv in portfolio.holdings
-                ]) if portfolio.holdings else "No assets"
+                if portfolio.holdings:
+                    parts = []
+                    for inv in portfolio.holdings:
+                        try:
+                            from decimal import Decimal
+                            sec_price = Decimal(self.security_service.get_security(inv.ticker).price)
+                            amount_invested = Decimal(inv.quantity) * sec_price
+                            parts.append(f"{inv.ticker} (${amount_invested:.2f}, {inv.quantity:.4f} shares)")
+                        except Exception:
+                            parts.append(f"{inv.ticker} (error computing value)")
+                    assets = ", ".join(parts)
+                else:
+                    assets = "No assets"
                 table.add_row(str(portfolio.id), str(portfolio.name), str(assets))
             self.console.print(table)
         except Exception as e:
@@ -373,6 +403,84 @@ class MenuPrinter:
             elif choice == 3:
                 self._sell_security(username)
 
+    def _view_transactions_menu(self, username: str) -> None:
+        """Menu to view transactions by user, portfolio, or security."""
+        while True:
+            self.print_menu([
+                "By User",
+                "By Portfolio",
+                "By Security",
+                "Back to Main Menu"
+            ], "View Transactions")
+            choice = self.prompt_choice(4, "Choose an option")
+            if choice == 0:
+                continue
+            if choice == 4:
+                break
+            try:
+                if choice == 1:
+                    # By user
+                    user = get_string("Username to view transactions for")
+                    if not user:
+                        continue
+                    # resolve user id
+                    u = self.user_service.get_user(user)
+                    txs = self.security_service.get_transactions_by_user(u.id, username)
+                    self._print_transactions(txs)
+                elif choice == 2:
+                    pid = get_int("Portfolio ID to view transactions for", min_value=1)
+                    if pid is None:
+                        continue
+                    txs = self.security_service.get_transactions_by_portfolio(pid, username)
+                    self._print_transactions(txs)
+                elif choice == 3:
+                    ticker = get_string("Security ticker to view transactions for")
+                    if not ticker:
+                        continue
+                    txs = self.security_service.get_transactions_by_security(ticker, username)
+                    self._print_transactions(txs)
+            except NotFoundError as ne:
+                self.console.print(f"[red]{ne}[/red]")
+            except PermissionError as pe:
+                self.console.print(f"[red]Permission denied: {pe}[/red]")
+            except Exception as e:
+                self.console.print(f"[red]Error retrieving transactions: {e}[/red]")
+
+    def _print_transactions(self, transactions: list) -> None:
+        """Render a list of Transaction ORM objects in a table."""
+        if not transactions:
+            self.console.print("[yellow]No transactions found.[/yellow]")
+            return
+        table = Table(title="Transactions")
+        table.add_column("ID", style="magenta")
+        table.add_column("Timestamp", style="cyan")
+        table.add_column("User", style="cyan")
+        table.add_column("Portfolio ID", style="green")
+        table.add_column("Security", style="green")
+        table.add_column("Action", style="yellow")
+        table.add_column("Quantity", style="green")
+        table.add_column("Price", style="green")
+        for tx in transactions:
+            user_name = getattr(tx, "user", None)
+            # user may be a relationship object or None; attempt to show username
+            uname = getattr(user_name, "username", str(getattr(tx, "user_id", "")))
+            try:
+                from decimal import Decimal
+                price_disp = Decimal(getattr(tx, 'price', Decimal('0.00')))
+            except Exception:
+                price_disp = getattr(tx, 'price', '')
+            table.add_row(
+                str(getattr(tx, "id", "")),
+                str(getattr(tx, "timestamp", "")),
+                str(uname),
+                str(getattr(tx, "portfolio_id", "")),
+                str(getattr(tx, "security_id", "")),
+                str(getattr(tx, "action", "")),
+                str(getattr(tx, "quantity", "")),
+                f"${price_disp:.2f}",
+            )
+        self.console.print(table)
+
     def _view_securities(self) -> None:
         """Display all available securities in a table."""
         try:
@@ -387,8 +495,8 @@ class MenuPrinter:
             for security in securities:
                 table.add_row(
                     str(getattr(security, "ticker", "")),
-                    str(getattr(security, "issuer", "")),
-                    f"${float(getattr(security, 'price', 0.0)):.2f}",
+                    str(getattr(security, "name", "")),
+                    f"${Decimal(getattr(security, 'price', Decimal('0.00'))):.2f}",
                 )
             self.console.print(table)
         except Exception as e:
@@ -397,17 +505,90 @@ class MenuPrinter:
     def _buy_security(self, username: str) -> None:
         """Prompt for security symbol, amount, and portfolio ID, then buy the security."""
         try:
-            symbol = get_string("Security symbol to buy")
-            if symbol == "":
-                return
+            # Prompt for symbol and validate; allow retries and suggestions
+            while True:
+                symbol = get_string("Security symbol to buy (or type 'list' to show available)")
+                if symbol == "":
+                    return
+                if symbol.strip().lower() == "list":
+                    self._view_securities()
+                    continue
+                # quick existence check
+                try:
+                    _ = self.security_service.get_security(symbol)
+                    break
+                except NotFoundError:
+                    # suggest close matches
+                    try:
+                        all_secs = self.security_service.list_securities()
+                        tickers = [s.ticker for s in all_secs]
+                    except Exception:
+                        tickers = []
+                    matches = difflib.get_close_matches(symbol.upper(), tickers, n=3, cutoff=0.6)
+                    if matches:
+                        self.console.print(f"[yellow]Ticker '{symbol}' not found. Did you mean: {', '.join(matches)} ?[/yellow]")
+                    else:
+                        self.console.print(f"[red]Ticker '{symbol}' not found.[/red]")
+                    retry = get_string("Retry ticker? (yes/no)")
+                    if retry.strip().lower() != "yes":
+                        return
             amount = get_float("Amount to invest", min_value=0.01)
             if amount is None:
                 return
 
-            # Prompt for portfolio ID
-            portfolio_id = get_int("Portfolio ID to invest in", min_value=1)
-            if portfolio_id is None:
+            # Portfolio selection/creation flow
+            try:
+                portfolios = self.portfolio_service.get_portfolios_by_username(username)
+            except NotFoundError:
+                self.console.print(f"[red]User '{username}' not found.[/red]")
                 return
+
+            portfolio_id = None
+            if not portfolios:
+                # No portfolios — offer to create one
+                create = get_string("You don't have any portfolios. Create one now? (yes/no)")
+                if create.strip().lower() != "yes":
+                    self.console.print("[yellow]Buy cancelled — no portfolio selected.[/yellow]")
+                    return
+                name = get_string("Portfolio name")
+                if name == "":
+                    return
+                description = get_string("Portfolio description")
+                if description == "":
+                    description = ""
+                new_port = self.portfolio_service.create_portfolio(username, name, description)
+                portfolio_id = new_port.id
+                self.console.print(f"[green]Created portfolio '{name}' (ID: {portfolio_id}).[/green]")
+            else:
+                # Show brief list and allow selection or creation
+                self.console.print("[bold]Your portfolios:[/bold]")
+                for p in portfolios:
+                    self.console.print(f"  {p.id}: {getattr(p, 'name', '')}")
+                while True:
+                    choice = get_string("Enter Portfolio ID to invest in or type 'new' to create a portfolio")
+                    if not choice:
+                        return
+                    if choice.strip().lower() == "new":
+                        name = get_string("Portfolio name")
+                        if name == "":
+                            return
+                        description = get_string("Portfolio description")
+                        if description == "":
+                            description = ""
+                        new_port = self.portfolio_service.create_portfolio(username, name, description)
+                        portfolio_id = new_port.id
+                        self.console.print(f"[green]Created portfolio '{name}' (ID: {portfolio_id}).[/green]")
+                        break
+                    try:
+                        pid = int(choice)
+                    except ValueError:
+                        self.console.print("[red]Invalid input. Enter a numeric portfolio ID or 'new'.[/red]")
+                        continue
+                    if any(p.id == pid for p in portfolios):
+                        portfolio_id = pid
+                        break
+                    else:
+                        self.console.print("[red]You do not own that portfolio. Choose again.[/red]")
 
             # Execute buy via service
             self.security_service.buy_security(username, symbol, amount, portfolio_id)

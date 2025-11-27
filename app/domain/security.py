@@ -1,6 +1,8 @@
 # app/domain/security.py
 from dataclasses import dataclass
 from typing import Any
+from decimal import Decimal
+
 
 @dataclass
 class Security:
@@ -13,7 +15,7 @@ class Security:
     """
     ticker: str
     issuer: str
-    price: float
+    price: Decimal
 
     def to_dict(self) -> dict[str, Any]:
-        return {"ticker": self.ticker, "issuer": self.issuer, "price": self.price}
+        return {"ticker": self.ticker, "issuer": self.issuer, "price": str(self.price)}
