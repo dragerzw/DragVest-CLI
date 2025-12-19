@@ -1,2 +1,8 @@
 rich>=13.0.0
-
+sqlalchemy
+pymysql
+pytest
+pytest-cov
+pymysql
+flask
+flask_sqlalchemy

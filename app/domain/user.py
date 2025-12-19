@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
+from decimal import Decimal
 
 @dataclass
 class User:
@@ -18,13 +19,13 @@ class User:
     last_name: str
     username: str
     password: str
-    balance: float = 0.0
+    balance: Decimal = Decimal("0.00")
     role: str = "customer"  # Default role is 'customer'
 
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}"
 
-    def adjust_balance(self, amount: float) -> None:
+    def adjust_balance(self, amount: Decimal) -> None:
         """Adjust balance by amount (positive or negative)."""
         self.balance += amount
 
@@ -38,6 +39,6 @@ class User:
             "last_name": self.last_name,
             "username": self.username,
             "password": self.password,
-            "balance": self.balance,
+            "balance": str(self.balance),
             "role": self.role,
         }

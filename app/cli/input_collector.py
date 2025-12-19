@@ -1,8 +1,9 @@
 # app/cli/input_collector.py
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from rich.prompt import Prompt
 from rich.console import Console
 from app.cli.constants import APP_NAME
+from decimal import Decimal, InvalidOperation
 
 console = Console()
 
@@ -52,25 +53,32 @@ def get_int(prompt: str, min_value: Optional[int] = None, max_value: Optional[in
             console.print("\n[red]Input cancelled.[/red]")
             return 0
 
-def get_float(prompt: str, min_value: Optional[float] = None, max_value: Optional[float] = None) -> float:
+def get_float(prompt: str, min_value: Optional[Union[float, Decimal]] = None, max_value: Optional[Union[float, Decimal]] = None) -> Decimal:
     """
-    Prompt the user for a float. Returns 0.0 on cancel/invalid flow (caller should handle).
+    Prompt the user for a numeric value and return a Decimal.
+
+    Returns Decimal('0.00') on cancel to preserve previous behavior where callers
+    expected a numeric return. `min_value` and `max_value` may be provided as
+    float or Decimal and are converted to Decimal for comparison.
     """
+    # Normalize min/max to Decimal if provided
+    min_dec = Decimal(str(min_value)) if min_value is not None else None
+    max_dec = Decimal(str(max_value)) if max_value is not None else None
     while True:
         try:
             raw = console.input(f"[bold]{prompt}[/bold] > ")
             if raw is None:
-                return 0.0
+                return Decimal('0.00')
             raw = raw.strip()
             if raw == "":
                 console.print("[red]Please enter a number.[/red]")
                 continue
             try:
-                val = float(raw)
-            except ValueError:
+                val = Decimal(raw)
+            except (InvalidOperation, ValueError):
                 console.print("[red]Invalid number. Try again.[/red]")
                 continue
-            if (min_value is not None and val < min_value) or (max_value is not None and val > max_value):
+            if (min_dec is not None and val < min_dec) or (max_dec is not None and val > max_dec):
                 rmin = f"{min_value}" if min_value is not None else ""
                 rmax = f"{max_value}" if max_value is not None else ""
                 console.print(f"[red]Please enter a number between {rmin} and {rmax}.[/red]")
@@ -78,4 +86,4 @@ def get_float(prompt: str, min_value: Optional[float] = None, max_value: Optiona
             return val
         except (KeyboardInterrupt, EOFError):
             console.print("\n[red]Input cancelled.[/red]")
-            return 0.0
+            return Decimal('0.00')
