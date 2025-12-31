@@ -41,7 +41,7 @@ def test_service_init_handles_exceptions_import_failure():
         target.rename(backup)
         sys.modules.pop('app.service.exceptions', None)
         importlib.reload(svc)
-        assert svc.NotFoundError is Exception or issubclass(svc.NotFoundError, Exception)
+        assert issubclass(svc.NotFoundError, Exception)
     finally:
         if backup.exists():
             backup.rename(target)
