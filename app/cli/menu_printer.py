@@ -185,7 +185,6 @@ class MenuPrinter:
             for user in users:
                 bal = getattr(user, 'balance', None)
                 try:
-                    from decimal import Decimal
                     bal_disp = Decimal(bal) if bal is not None else Decimal('0.00')
                 except Exception:
                     bal_disp = bal
