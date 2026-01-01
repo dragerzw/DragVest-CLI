@@ -463,7 +463,6 @@ class MenuPrinter:
             # user may be a relationship object or None; attempt to show username
             uname = getattr(user_name, "username", str(getattr(tx, "user_id", "")))
             try:
-                from decimal import Decimal
                 price_disp = Decimal(getattr(tx, 'price', Decimal('0.00')))
             except Exception:
                 price_disp = getattr(tx, 'price', '')
