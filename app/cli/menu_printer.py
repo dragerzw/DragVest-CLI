@@ -335,7 +335,6 @@ class MenuPrinter:
                     parts = []
                     for inv in portfolio.holdings:
                         try:
-                            from decimal import Decimal
                             sec_price = Decimal(self.security_service.get_security(inv.ticker).price)
                             amount_invested = Decimal(inv.quantity) * sec_price
                             parts.append(f"{inv.ticker} (${amount_invested:.2f}, {inv.quantity:.4f} shares)")
