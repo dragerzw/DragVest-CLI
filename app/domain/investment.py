@@ -1,5 +1,7 @@
 # app/domain/investment.py
 from dataclasses import dataclass
+from decimal import Decimal
+
 
 @dataclass
 class Investment:
@@ -12,7 +14,7 @@ class Investment:
     """
     ticker: str
     quantity: int
-    purchase_price: float
+    purchase_price: Decimal
 
-    def value(self) -> float:
-        return self.quantity * self.purchase_price
+    def value(self) -> Decimal:
+        return Decimal(self.quantity) * self.purchase_price

@@ -1,102 +1,221 @@
-# app/service/security_service.py
 from typing import List
-import db
-
-from app.domain.security import Security
-from app.domain.portfolio import Portfolio
+from decimal import Decimal
+from app.db import get_session
+from app.models import Security, Portfolio, Investment, User, Transaction
+from sqlalchemy.orm import selectinload
 from app.service.exceptions import NotFoundError
 
+
 class SecurityService:
-    """
-    Simple service to expose securities stored in the top-level `db` module.
-    Assumes `db.securities` is a dict mapping ticker -> Security.
-    """
-    def __init__(self) -> None:
-        self.db = db
+	"""Service for securities and transaction logging using SQLAlchemy/MySQL."""
+	def list_securities(self) -> List[Security]:
+		session = get_session()
+		try:
+			secs = session.query(Security).all()
+			return secs
+		finally:
+			session.close()
 
-    def list_securities(self) -> List[Security]:
-        """Return all securities available in the marketplace."""
-        sec_map = getattr(self.db, "securities", {})
-        # ensure we return a list of Security objects (or empty list)
-        return list(sec_map.values()) if isinstance(sec_map, dict) else []
+	def get_security(self, ticker: str) -> Security:
+		session = get_session()
+		try:
+			sec = session.query(Security).filter_by(ticker=ticker).one_or_none()
+			if not sec:
+				raise NotFoundError(f"ticker '{ticker}' not found")
+			return sec
+		finally:
+			session.close()
 
-    def get_security(self, ticker: str) -> Security:
-        """Return a Security by ticker or raise NotFoundError."""
-        sec_map = getattr(self.db, "securities", {})
-        if not isinstance(sec_map, dict):
-            raise NotFoundError(f"ticker '{ticker}' not found")
-        sec = sec_map.get(ticker)
-        if sec is None:
-            raise NotFoundError(f"ticker '{ticker}' not found")
-        return sec
+	def buy_security(self, username: str, ticker: str, amount: float, portfolio_id: int) -> None:
+		session = get_session()
+		try:
+			user = session.query(User).filter_by(username=username).one_or_none()
+			if not user:
+				raise NotFoundError(f"User '{username}' not found.")
+			if user.role != "customer":
+				raise PermissionError("Only customers can buy securities.")
 
-    def buy_security(self, username: str, ticker: str, amount: float, portfolio_id: int) -> None:
-        """
-        Allow a user to buy a security in a specific portfolio.
-        Supports fractional investing.
-        """
-        if username not in self.db.users:
-            raise NotFoundError(f"User '{username}' not found.")
+			portfolio = session.query(Portfolio).filter_by(owner_username=username, id=portfolio_id).one_or_none()
+			if not portfolio:
+				raise NotFoundError(f"Portfolio with ID '{portfolio_id}' not found for user '{username}'.")
 
-        user = self.db.users[username]
-        if user.role != "customer":
-            raise PermissionError("Only customers can buy securities.")
+			security = session.query(Security).filter_by(ticker=ticker).one_or_none()
+			if not security:
+				raise NotFoundError(f"Security '{ticker}' not found in the marketplace.")
 
-        portfolios = self.db.portfolios.get(username, [])
-        portfolio = next((p for p in portfolios if p.id == portfolio_id), None)
-        if portfolio is None:
-            raise NotFoundError(f"Portfolio with ID '{portfolio_id}' not found for user '{username}'.")
+			# Ensure security.price is a Decimal for safe arithmetic
+			price = Decimal(str(security.price))
+			amt = Decimal(str(amount))
+			# normalize user balance to Decimal for comparisons and arithmetic
+			ubal = Decimal(str(user.balance)) if not isinstance(user.balance, Decimal) else user.balance
+			if amt > ubal:
+				raise ValueError("Insufficient balance to buy security.")
 
-        security = self.db.securities.get(ticker)
-        if security is None:
-            raise NotFoundError(f"Security '{ticker}' not found in the marketplace.")
+			quantity = int(amt // price)
+			if quantity <= 0:
+				raise ValueError("Investment amount is too low to buy any shares.")
 
-        if amount > user.balance:
-            raise ValueError("Insufficient balance to buy security.")
+			total_cost = Decimal(quantity) * price
+			# perform assignment to avoid float/Decimal in-place ops
+			ubal = Decimal(str(user.balance)) if not isinstance(user.balance, Decimal) else user.balance
+			ubal = ubal - total_cost
+			user.balance = ubal
 
-        # Calculate fractional shares
-        quantity = amount / security.price
-        if quantity <= 0:
-            raise ValueError("Investment amount is too low to buy any shares.")
+			investment = session.query(Investment).filter_by(portfolio_id=portfolio_id, ticker=ticker).one_or_none()
+			if investment:
+				investment.quantity += quantity
+				investment.purchase_price = price
+			else:
+				investment = Investment(ticker=ticker, quantity=quantity, purchase_price=price, portfolio_id=portfolio_id)
+				session.add(investment)
 
-        user.adjust_balance(-amount)
-        portfolio.add_or_update_investment(ticker, quantity, security.price)
+			# Log transaction
+			transaction = Transaction(
+				user_id=user.id,
+				portfolio_id=portfolio_id,
+				security_id=ticker,
+				action="BUY",
+				quantity=quantity,
+				price=price,
+			)
+			session.add(transaction)
 
-    def sell_security(self, username: str, ticker: str, amount: float, portfolio_id: int) -> None:
-        """
-        Allow a user to sell a security from a specific portfolio.
-        Only users with the 'customer' role can perform this action.
-        """
-        if username not in self.db.users:
-            raise NotFoundError(f"User '{username}' not found.")
+			session.commit()
+		finally:
+			session.close()
 
-        user = self.db.users[username]
-        if user.role != "customer":
-            raise PermissionError("Only customers can sell securities.")
+	def sell_security(self, username: str, ticker: str, amount: float, portfolio_id: int) -> None:
+		session = get_session()
+		try:
+			user = session.query(User).filter_by(username=username).one_or_none()
+			if not user:
+				raise NotFoundError(f"User '{username}' not found.")
+			if user.role != "customer":
+				raise PermissionError("Only customers can sell securities.")
 
-        portfolios = self.db.portfolios.get(username, [])
-        portfolio = next((p for p in portfolios if p.id == portfolio_id), None)
-        if portfolio is None:
-            raise NotFoundError(f"Portfolio with ID '{portfolio_id}' not found for user '{username}'.")
+			portfolio = session.query(Portfolio).filter_by(owner_username=username, id=portfolio_id).one_or_none()
+			if not portfolio:
+				raise NotFoundError(f"Portfolio with ID '{portfolio_id}' not found for user '{username}'.")
 
-        investment = next((inv for inv in portfolio.holdings if inv.ticker == ticker), None)
-        if investment is None:
-            raise NotFoundError(f"Security '{ticker}' not found in portfolio '{portfolio.name}'.")
+			investment = session.query(Investment).filter_by(portfolio_id=portfolio_id, ticker=ticker).one_or_none()
+			if not investment:
+				raise NotFoundError(f"Security '{ticker}' not found in portfolio '{portfolio.name if portfolio else ''}'.")
 
-        security = self.db.securities.get(ticker)
-        if security is None:
-            raise NotFoundError(f"Security '{ticker}' not found in the marketplace.")
+			security = session.query(Security).filter_by(ticker=ticker).one_or_none()
+			if not security:
+				raise NotFoundError(f"Security '{ticker}' not found in the marketplace.")
 
-        total_value = investment.quantity * security.price
-        if amount > total_value:
-            raise ValueError("Amount exceeds the total value of the investment.")
+			# Ensure security.price is Decimal for arithmetic
+			price = Decimal(str(security.price))
+			amt = Decimal(str(amount))
+			total_value = Decimal(investment.quantity) * price
+			if amt > total_value:
+				raise ValueError("Amount exceeds the total value of the investment.")
 
-        quantity_to_sell = amount // security.price
-        if quantity_to_sell == 0:
-            raise ValueError("Amount is too low to sell any shares.")
+			quantity_to_sell = int(amt // price)
+			if quantity_to_sell <= 0:
+				raise ValueError("Amount is too low to sell any shares.")
+			if quantity_to_sell > investment.quantity:
+				raise ValueError("Not enough shares to sell.")
+			investment.quantity -= quantity_to_sell
+			if investment.quantity == 0:
+				session.delete(investment)
 
-        investment.quantity -= quantity_to_sell
-        if investment.quantity == 0:
-            portfolio.holdings.remove(investment)
+			proceeds = Decimal(quantity_to_sell) * price
+			ubal = Decimal(str(user.balance)) if not isinstance(user.balance, Decimal) else user.balance
+			ubal = ubal + proceeds
+			user.balance = ubal
 
-        user.adjust_balance(amount)
+			transaction = Transaction(
+				user_id=user.id,
+				portfolio_id=portfolio_id,
+				security_id=ticker,
+				action="SELL",
+				quantity=quantity_to_sell,
+				price=price,
+			)
+			session.add(transaction)
+
+			session.commit()
+		finally:
+			session.close()
+
+	# Query transaction history
+	def get_transactions_by_user(self, user_id: int, requesting_username: str) -> List[Transaction]:
+		"""Return transactions for a given user id if requesting user is the owner or an admin."""
+		session = get_session()
+		try:
+			requester = session.query(User).filter_by(username=requesting_username).one_or_none()
+			if not requester:
+				raise NotFoundError(f"Requesting user '{requesting_username}' not found")
+			if requester.role != "admin" and requester.id != user_id:
+				raise PermissionError("Not authorized to view these transactions.")
+
+			txs = (
+				session.query(Transaction)
+				.options(selectinload(Transaction.user), selectinload(Transaction.portfolio), selectinload(Transaction.security))
+				.filter_by(user_id=user_id)
+				.order_by(Transaction.timestamp.desc())
+				.all()
+			)
+			return txs
+		finally:
+			session.close()
+
+	def get_transactions_by_portfolio(self, portfolio_id: int, requesting_username: str) -> List[Transaction]:
+		"""Return transactions for a portfolio if requesting user is the portfolio owner or an admin."""
+		session = get_session()
+		try:
+			requester = session.query(User).filter_by(username=requesting_username).one_or_none()
+			if not requester:
+				raise NotFoundError(f"Requesting user '{requesting_username}' not found")
+
+			portfolio = session.query(Portfolio).filter_by(id=portfolio_id).one_or_none()
+			if not portfolio:
+				raise NotFoundError(f"Portfolio id '{portfolio_id}' not found")
+
+			if requester.role != "admin" and portfolio.owner_username != requesting_username:
+				raise PermissionError("Not authorized to view these transactions.")
+
+			txs = (
+				session.query(Transaction)
+				.options(selectinload(Transaction.user), selectinload(Transaction.portfolio), selectinload(Transaction.security))
+				.filter_by(portfolio_id=portfolio_id)
+				.order_by(Transaction.timestamp.desc())
+				.all()
+			)
+			return txs
+		finally:
+			session.close()
+
+	def get_transactions_by_security(self, security_id: str, requesting_username: str) -> List[Transaction]:
+		"""Return transactions for a security if requester is admin or owns portfolios holding that security."""
+		session = get_session()
+		try:
+			requester = session.query(User).filter_by(username=requesting_username).one_or_none()
+			if not requester:
+				raise NotFoundError(f"Requesting user '{requesting_username}' not found")
+
+			if requester.role != "admin":
+				# Check if requester owns any portfolio with investments in this security
+				own_inv = (
+					session.query(Investment)
+					.join(Portfolio, Investment.portfolio_id == Portfolio.id)
+					.filter(Portfolio.owner_username == requesting_username, Investment.ticker == security_id)
+					.first()
+				)
+				if not own_inv:
+					raise PermissionError("Not authorized to view these transactions.")
+
+			txs = (
+				session.query(Transaction)
+				.options(selectinload(Transaction.user), selectinload(Transaction.portfolio), selectinload(Transaction.security))
+				.filter_by(security_id=security_id)
+				.order_by(Transaction.timestamp.desc())
+				.all()
+			)
+			return txs
+		finally:
+			session.close()
+
+
