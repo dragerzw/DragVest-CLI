@@ -8,7 +8,6 @@ from app.service.portfolio_service import PortfolioService
 from app.service.security_service import SecurityService
 
 
-console = Console()
 
 def main() -> None:
     console.print(f"[bold green]Welcome to {APP_NAME}![/bold green]")
