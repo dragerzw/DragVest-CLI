@@ -2,13 +2,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, ForeignKey
-from app.database import sqldb as db
+from app.db import Base
 
 if TYPE_CHECKING:
     from .user import User
     from .investment import Investment
 
-class Portfolio(db.Model):
+class Portfolio(Base):
     __tablename__ = "portfolio"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

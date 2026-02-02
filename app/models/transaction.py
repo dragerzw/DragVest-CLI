@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import Integer, String, DateTime, ForeignKey, Numeric
-from app.database import sqldb as db
+from app.db import Base
 from decimal import Decimal
 import datetime
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from .security import Security
 
 
-class Transaction(db.Model):
+class Transaction(Base):
     __tablename__ = "transaction"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

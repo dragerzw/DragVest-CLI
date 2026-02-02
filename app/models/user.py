@@ -3,12 +3,12 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Integer, Numeric
 from decimal import Decimal
-from app.database import sqldb as db
+from app.db import Base
 
 if TYPE_CHECKING:
     from .portfolio import Portfolio
 
-class User(db.Model):
+class User(Base):
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

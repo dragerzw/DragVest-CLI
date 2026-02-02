@@ -1,6 +1,6 @@
 # app/service/login_service.py
 from typing import Optional
-from app.database import sqldb as db
+from app.db import get_session
 from app.models.user import User
 
 class LoginService:
@@ -11,8 +11,9 @@ class LoginService:
         pass
 
     def authenticate(self, username: str, password: str) -> bool:
-        session = db.session
+        session = get_session()
         user = session.query(User).filter_by(username=username).one_or_none()
+        session.close()
         if user is None:
             return False
         # Compare password (plain text for now)

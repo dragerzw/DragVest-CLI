@@ -4,5 +4,3 @@ pymysql
 pytest
 pytest-cov
 pymysql
-flask
-flask_sqlalchemy

@@ -185,7 +185,6 @@ class MenuPrinter:
             for user in users:
                 bal = getattr(user, 'balance', None)
                 try:
-                    from decimal import Decimal
                     bal_disp = Decimal(bal) if bal is not None else Decimal('0.00')
                 except Exception:
                     bal_disp = bal
@@ -336,7 +335,6 @@ class MenuPrinter:
                     parts = []
                     for inv in portfolio.holdings:
                         try:
-                            from decimal import Decimal
                             sec_price = Decimal(self.security_service.get_security(inv.ticker).price)
                             amount_invested = Decimal(inv.quantity) * sec_price
                             parts.append(f"{inv.ticker} (${amount_invested:.2f}, {inv.quantity:.4f} shares)")
@@ -465,7 +463,6 @@ class MenuPrinter:
             # user may be a relationship object or None; attempt to show username
             uname = getattr(user_name, "username", str(getattr(tx, "user_id", "")))
             try:
-                from decimal import Decimal
                 price_disp = Decimal(getattr(tx, 'price', Decimal('0.00')))
             except Exception:
                 price_disp = getattr(tx, 'price', '')
